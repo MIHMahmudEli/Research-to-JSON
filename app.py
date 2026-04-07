@@ -64,8 +64,8 @@ CUSTOM_CSS = """
 
     /* ── Hero header ── */
     .hero-wrapper {
-        text-align: center;
-        padding: 2.5rem 1rem 1.5rem;
+        text-align: left;
+        padding: 2rem 0;
         position: relative;
     }
     .hero-badge {
@@ -94,8 +94,8 @@ CUSTOM_CSS = """
     .hero-sub {
         font-size: 1.05rem;
         color: #64748b;
-        max-width: 560px;
-        margin: 0 auto 1.5rem;
+        max-width: 600px;
+        margin: 0 0 1.5rem 0;
         line-height: 1.7;
         font-weight: 400;
     }
@@ -470,10 +470,9 @@ except Exception as e:
 st.markdown("""
     <div class="hero-wrapper">
         <div class="hero-badge">✦ Powered by Google Gemini AI</div>
-        <h1 class="hero-title">Research Paper<br/>→ Structured JSON</h1>
+        <h1 class="hero-title" style="margin-bottom: 1rem;">Research Paper<br/><span style="opacity: 0.8;">→ Structured JSON</span></h1>
         <p class="hero-sub">Drop your PDF below. Gemini will read and intelligently extract every key field in seconds.</p>
     </div>
-    <hr class="fancy-divider"/>
 """, unsafe_allow_html=True)
 
 # ── Main split layout ─────────────────────────────────────────────────────
@@ -489,14 +488,12 @@ if "file_bytes" not in st.session_state:
 
 # ── Right: Upload + Extraction ─────────────────────────────────────────────
 with col_extract:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.markdown('<div class="section-label">📤 Upload Paper</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
         "Drag & drop PDF here, or click to browse",
         type=["pdf"],
         label_visibility="collapsed"
     )
-    st.markdown('</div>', unsafe_allow_html=True)
 
     if uploaded_file is not None:
         # Only re-process if a NEW file was uploaded
