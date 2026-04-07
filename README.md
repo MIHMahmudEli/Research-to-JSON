@@ -8,6 +8,10 @@ A premium, AI-powered web application that intelligently parses academic researc
 
 ---
 
+### 🌐 [Live Demo: Access Research to JSON](https://mihmahmudeli-research-to-json-app-r2bfaf.streamlit.app/)
+
+---
+
 ## 🚀 Features
 
 - **Intelligent Extraction:** Automatically identifies Title, Authors, Abstract, Keywords, Sections, and References.
@@ -58,6 +62,12 @@ A premium, AI-powered web application that intelligently parses academic researc
 
 ## 📖 How to Use
 
+### ☁️ Cloud Deployment (Easiest)
+1. **Visit [mihmahmudeli-research-to-json-app-r2bfaf.streamlit.app](https://mihmahmudeli-research-to-json-app-r2bfaf.streamlit.app/)**
+2. **Setup:** Provide your Gemini API key in the sidebar.
+3. **Upload:** Process any research PDF directly in the browser!
+
+### 💻 Local Development
 1. **Get a Gemini API Key:** Visit [Google AI Studio](https://aistudio.google.com/) to generate a free API key.
 2. **Launch the App:** Open `http://localhost:8501` in your browser.
 3. **Configure:** Enter your API key in the left sidebar.
