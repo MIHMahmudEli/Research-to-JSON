@@ -415,7 +415,12 @@ st.markdown("""
 # ── Main split layout ─────────────────────────────────────────────────────
 col_pdf, col_extract = st.columns([1, 1], gap="large")
 
-extracted_data = None
+# ── Session state init ────────────────────────────────────────────────────
+if "extracted_data" not in st.session_state:
+    st.session_state.extracted_data = None
+if "last_filename" not in st.session_state:
+    st.session_state.last_filename = None
+
 file_bytes = None
 
 # ── Right: Upload + Extraction ─────────────────────────────────────────────
@@ -432,12 +437,23 @@ with col_extract:
     if uploaded_file is not None:
         file_bytes = uploaded_file.read()
 
-        with st.spinner("🤖 Gemini is reading your paper — extracting structure, sections & references…"):
-            try:
-                pdf_text = extract_text_from_pdf(file_bytes)
-                extracted_data = extract_structured_data(pdf_text)
-            except Exception as e:
-                st.error(f"**Extraction Error:** {e}")
+        # Only re-extract if a NEW file was uploaded (not on button clicks)
+        if uploaded_file.name != st.session_state.last_filename:
+            st.session_state.extracted_data = None  # clear stale result
+            st.session_state.last_filename = uploaded_file.name
+
+            with st.spinner("🤖 Gemini is reading your paper — extracting structure, sections & references…"):
+                try:
+                    pdf_text = extract_text_from_pdf(file_bytes)
+                    st.session_state.extracted_data = extract_structured_data(pdf_text)
+                except Exception as e:
+                    st.error(f"**Extraction Error:** {e}")
+    else:
+        # File removed — clear cached result
+        st.session_state.extracted_data = None
+        st.session_state.last_filename = None
+
+    extracted_data = st.session_state.extracted_data
 
     if extracted_data:
         st.markdown('<div class="success-banner">✅ Extraction complete! Your JSON is ready below.</div>', unsafe_allow_html=True)
