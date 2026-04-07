@@ -4,7 +4,7 @@ import json
 import base64
 import fitz  # PyMuPDF - for page-image rendering
 from dotenv import load_dotenv
-from utils import setup_gemini, extract_text_from_pdf, extract_structured_data
+from utils import setup_gemini, extract_text_from_pdf, extract_structured_data, RateLimitError
 
 load_dotenv()
 
@@ -324,6 +324,69 @@ CUSTOM_CSS = """
     header[data-testid="stHeader"] { display: none; }
     #MainMenu { display: none; }
     footer { display: none; }
+    /* ── Rate limit card ── */
+    .rate-limit-card {
+        background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(239,68,68,0.06));
+        border: 1px solid rgba(245,158,11,0.3);
+        border-radius: 16px;
+        padding: 1.5rem 1.75rem;
+        margin-bottom: 1rem;
+        position: relative;
+        overflow: hidden;
+    }
+    .rate-limit-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, #f59e0b, #ef4444);
+        border-radius: 16px 16px 0 0;
+    }
+    .rate-limit-title {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #fbbf24;
+        margin-bottom: 0.4rem;
+    }
+    .rate-limit-body {
+        font-size: 0.88rem;
+        color: #94a3b8;
+        line-height: 1.7;
+        margin-bottom: 1rem;
+    }
+    .retry-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(245,158,11,0.12);
+        border: 1px solid rgba(245,158,11,0.3);
+        border-radius: 100px;
+        padding: 5px 14px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #fbbf24;
+        margin-bottom: 1rem;
+    }
+    .rate-limit-actions a {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        margin-right: 10px;
+        padding: 5px 14px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 8px;
+        color: #94a3b8;
+        font-size: 0.8rem;
+        font-weight: 500;
+        text-decoration: none;
+        transition: all 0.2s ease;
+    }
+    .rate-limit-actions a:hover {
+        background: rgba(245,158,11,0.1);
+        border-color: rgba(245,158,11,0.3);
+        color: #fbbf24;
+    }
 </style>
 """
 
@@ -446,8 +509,37 @@ with col_extract:
                 try:
                     pdf_text = extract_text_from_pdf(st.session_state.file_bytes)
                     st.session_state.extracted_data = extract_structured_data(pdf_text)
+                except RateLimitError as rle:
+                    wait = rle.retry_after
+                    minutes = wait // 60
+                    seconds = wait % 60
+                    time_str = f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
+                    st.markdown(f"""
+                        <div class="rate-limit-card">
+                            <div class="rate-limit-title">⚠️ API Quota Exceeded</div>
+                            <div class="rate-limit-body">
+                                You have reached the <strong style="color:#fbbf24;">Gemini free-tier limit</strong> 
+                                of <strong style="color:#fbbf24;">20 requests/day</strong> for this model. 
+                                Your quota will reset automatically. Please wait before retrying.
+                            </div>
+                            <div class="retry-badge">
+                                ⏱ Suggested retry in: <strong>{time_str}</strong>
+                            </div>
+                            <div class="rate-limit-actions">
+                                <a href="https://ai.google.dev/gemini-api/docs/rate-limits" target="_blank">📖 Rate Limit Docs</a>
+                                <a href="https://ai.dev/rate-limit" target="_blank">📊 Monitor Usage</a>
+                                <a href="https://aistudio.google.com/" target="_blank">🔑 AI Studio</a>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
                 except Exception as e:
-                    st.error(f"**Extraction Error:** {e}")
+                    st.markdown(f"""
+                        <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25);
+                             border-radius:12px; padding:1rem 1.25rem; color:#f87171; font-size:0.88rem;">
+                            <strong>❌ Extraction Error</strong><br/><br/>
+                            <span style="color:#94a3b8;">{str(e)}</span>
+                        </div>
+                    """, unsafe_allow_html=True)
     else:
         # File removed — clear cached result
         st.session_state.extracted_data = None

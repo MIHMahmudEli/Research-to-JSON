@@ -1,8 +1,16 @@
 import fitz  # PyMuPDF
 import google.generativeai as genai
 import json
+import re
 import os
 from typing import Dict, Any, Optional
+
+
+class RateLimitError(Exception):
+    """Raised when the Gemini API returns a 429 quota-exceeded response."""
+    def __init__(self, message: str, retry_after: int = 60):
+        super().__init__(message)
+        self.retry_after = retry_after  # seconds to wait before retrying
 
 def setup_gemini(api_key: str):
     """Configures the Gemini API."""
@@ -82,11 +90,25 @@ def extract_structured_data(pdf_text: str) -> Dict[str, Any]:
     =======================
     """
     
-    response = model.generate_content(prompt)
-    
     try:
-        # Try to parse the response text as JSON
-        # It might contain markdown formatting, so we safely strip it if it does
+        response = model.generate_content(prompt)
+    except Exception as api_err:
+        err_str = str(api_err)
+        # Detect quota / rate-limit errors (HTTP 429)
+        if "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower():
+            # Try to parse the retry_delay seconds from the error message
+            retry_seconds = 60  # safe default
+            match = re.search(r'retry_delay\s*\{\s*seconds:\s*(\d+)', err_str)
+            if match:
+                retry_seconds = int(match.group(1))
+            raise RateLimitError(
+                "Gemini API free-tier quota exceeded. Please wait and try again.",
+                retry_after=retry_seconds
+            )
+        raise  # re-raise any other API errors as-is
+
+    try:
+        # Parse the response; strip any accidental markdown fences
         response_text = response.text.strip()
         if response_text.startswith("```json"):
             response_text = response_text[7:]
@@ -94,7 +116,7 @@ def extract_structured_data(pdf_text: str) -> Dict[str, Any]:
             response_text = response_text[3:]
         if response_text.endswith("```"):
             response_text = response_text[:-3]
-            
+
         response_text = response_text.strip()
         parsed_data = json.loads(response_text)
         return parsed_data
