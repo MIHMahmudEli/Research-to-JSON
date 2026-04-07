@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import json
 import base64
+import fitz  # PyMuPDF - for page-image rendering
 from dotenv import load_dotenv
 from utils import setup_gemini, extract_text_from_pdf, extract_structured_data
 
@@ -420,8 +421,8 @@ if "extracted_data" not in st.session_state:
     st.session_state.extracted_data = None
 if "last_filename" not in st.session_state:
     st.session_state.last_filename = None
-
-file_bytes = None
+if "file_bytes" not in st.session_state:
+    st.session_state.file_bytes = None
 
 # ── Right: Upload + Extraction ─────────────────────────────────────────────
 with col_extract:
@@ -435,16 +436,15 @@ with col_extract:
     st.markdown('</div>', unsafe_allow_html=True)
 
     if uploaded_file is not None:
-        file_bytes = uploaded_file.read()
-
-        # Only re-extract if a NEW file was uploaded (not on button clicks)
+        # Only re-process if a NEW file was uploaded
         if uploaded_file.name != st.session_state.last_filename:
+            st.session_state.file_bytes = uploaded_file.read()
             st.session_state.extracted_data = None  # clear stale result
             st.session_state.last_filename = uploaded_file.name
 
             with st.spinner("🤖 Gemini is reading your paper — extracting structure, sections & references…"):
                 try:
-                    pdf_text = extract_text_from_pdf(file_bytes)
+                    pdf_text = extract_text_from_pdf(st.session_state.file_bytes)
                     st.session_state.extracted_data = extract_structured_data(pdf_text)
                 except Exception as e:
                     st.error(f"**Extraction Error:** {e}")
@@ -452,6 +452,7 @@ with col_extract:
         # File removed — clear cached result
         st.session_state.extracted_data = None
         st.session_state.last_filename = None
+        st.session_state.file_bytes = None
 
     extracted_data = st.session_state.extracted_data
 
@@ -494,19 +495,39 @@ with col_extract:
 # ── Left: PDF Preview ──────────────────────────────────────────────────────
 with col_pdf:
     st.markdown('<div class="section-label">📄 Document Preview</div>', unsafe_allow_html=True)
-    if file_bytes is not None:
+    if st.session_state.file_bytes is not None:
         try:
-            b64 = base64.b64encode(file_bytes).decode("utf-8")
+            doc = fitz.open(stream=st.session_state.file_bytes, filetype="pdf")
+            total_pages = len(doc)
+
+            # Page navigator
+            page_num = st.number_input(
+                f"Page (1 – {total_pages})",
+                min_value=1, max_value=total_pages, value=1, step=1,
+                key="pdf_page_nav"
+            )
+
+            page = doc.load_page(page_num - 1)
+            # Render at 2× resolution for crispness
+            mat = fitz.Matrix(2.0, 2.0)
+            pix = page.get_pixmap(matrix=mat)
+            img_bytes = pix.tobytes("png")
+
             st.markdown(
-                f'<div class="pdf-frame-wrapper">'
-                f'<iframe src="data:application/pdf;base64,{b64}" '
-                f'width="100%" height="820" type="application/pdf" '
-                f'style="border:1px solid rgba(255,255,255,0.07); border-radius:14px; box-shadow:0 8px 32px rgba(0,0,0,0.5);">'
-                f'</iframe></div>',
+                '<div style="border:1px solid rgba(255,255,255,0.07); border-radius:14px; '
+                'overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,0.5);">',
                 unsafe_allow_html=True
             )
-        except Exception:
-            st.error("Could not render PDF preview.")
+            st.image(img_bytes, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            st.markdown(
+                f'<div style="text-align:center; font-size:0.78rem; color:#475569; margin-top:6px;">'
+                f'Page {page_num} of {total_pages} · {st.session_state.last_filename}</div>',
+                unsafe_allow_html=True
+            )
+        except Exception as ex:
+            st.error(f"Could not render PDF preview: {ex}")
     else:
         st.markdown("""
             <div class="empty-state">
