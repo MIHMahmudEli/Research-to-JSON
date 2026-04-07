@@ -65,7 +65,7 @@ CUSTOM_CSS = """
     /* ── Hero header ── */
     .hero-wrapper {
         text-align: left;
-        padding: 2rem 0;
+        padding: 2rem 0 1.5rem;
         position: relative;
     }
     .hero-badge {
@@ -470,8 +470,8 @@ except Exception as e:
 st.markdown("""
     <div class="hero-wrapper">
         <div class="hero-badge">✦ Powered by Google Gemini AI</div>
-        <h1 class="hero-title" style="margin-bottom: 1rem;">Research Paper<br/><span style="opacity: 0.8;">→ Structured JSON</span></h1>
-        <p class="hero-sub">Drop your PDF below. Gemini will read and intelligently extract every key field in seconds.</p>
+        <h1 class="hero-title" style="margin-bottom: 0.8rem;">Research Paper<br/><span style="opacity: 0.85; font-weight: 700;">→ Structured JSON</span></h1>
+        <p class="hero-sub" style="margin-bottom: 0;">Drop your PDF below. Gemini will read and intelligently extract every key field in seconds.</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -589,12 +589,17 @@ with col_pdf:
             doc = fitz.open(stream=st.session_state.file_bytes, filetype="pdf")
             total_pages = len(doc)
 
-            # Page navigator
-            page_num = st.number_input(
-                f"Page (1 – {total_pages})",
-                min_value=1, max_value=total_pages, value=1, step=1,
-                key="pdf_page_nav"
-            )
+            # Page navigator - more compact
+            top_nav_c1, top_nav_c2 = st.columns([1, 1], gap="small")
+            with top_nav_c1:
+                page_num = st.number_input(
+                    f"Page per {total_pages}",
+                    min_value=1, max_value=total_pages, value=1, step=1,
+                    key="pdf_page_nav",
+                    label_visibility="collapsed"
+                )
+            with top_nav_c2:
+                st.markdown(f"<div style='padding-top:8px; font-size:0.85rem; color:#64748b;'>of {total_pages} pages</div>", unsafe_allow_html=True)
 
             page = doc.load_page(page_num - 1)
             # Render at 2× resolution for crispness
