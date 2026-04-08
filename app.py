@@ -270,6 +270,7 @@ with st.sidebar:
         "Gemini API Key", value=api_key_env, type="password",
         placeholder="AIzaSy...", help="Get your free key at aistudio.google.com"
     )
+    st.link_button("🔑 Get Gemini API Key", "https://aistudio.google.com/app/apikey", use_container_width=True)
     if user_api_key:
         st.markdown('<div style="color:#34d399; font-size:0.8rem; font-weight:600; margin-top:-8px;">✓ API Key provided</div>', unsafe_allow_html=True)
     else:
