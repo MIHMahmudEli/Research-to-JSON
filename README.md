@@ -14,7 +14,9 @@ A premium, AI-powered web application that intelligently parses academic researc
 
 ## 🚀 Features
 
-- **Intelligent Extraction:** Automatically identifies Title, Authors, Abstract, Keywords, Sections, and References.
+- **Research Insights:** Deep extraction of Paper Summary, Key Findings, Limitations, and Future Research suggestions.
+- **Dataset Detection:** Automatically finds dataset names and direct download/visit links.
+- **Intelligent Extraction:** Identifies Title, Authors, Abstract, Keywords, Sections, and References.
 - **Real-time Preview:** Interactive side-by-side view with a high-fidelity PDF document previewer.
 - **Premium UI/UX:** Stunning dark theme with glassmorphism, animated gradients, and micro-interactions.
 - **Smart Quota Handling:** Beautifully handles API rate limits with retry countdowns and monitoring links.
@@ -84,16 +86,26 @@ The application follows a strict schema for all extractions:
 ```json
 {
   "title": "String",
-  "authors": ["String", "..."],
+  "authors": ["String"],
   "abstract": "String",
-  "keywords": ["String", "..."],
+  "summary": "String (2-3 paragraph summary)",
+  "key_findings": ["String"],
+  "datasets": [
+      {
+          "name": "String",
+          "link": "String (URL or 'Not found')"
+      }
+  ],
+  "limitations": ["String"],
+  "future_work": ["String"],
+  "keywords": ["String"],
   "sections": [
     {
       "heading": "String",
       "body": "String"
     }
   ],
-  "references": ["String", "..."]
+  "references": ["String"]
 }
 ```
 
