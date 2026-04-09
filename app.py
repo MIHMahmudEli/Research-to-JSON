@@ -246,6 +246,7 @@ CUSTOM_CSS = """
     .block-container { padding-top: 1.5rem !important; padding-bottom: 2rem !important; }
     header[data-testid="stHeader"] { display: none; }
     footer { display: none; }
+    [data-testid="collapsedControl"] { display: none !important; }
 </style>
 """
 
