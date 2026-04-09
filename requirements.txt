@@ -3,3 +3,6 @@ pymupdf
 google-generativeai
 python-dotenv
 pydantic
+groq
+openai
+anthropic

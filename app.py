@@ -4,7 +4,7 @@ import json
 import fitz  # PyMuPDF
 from dotenv import load_dotenv
 from utils import (
-    setup_gemini, extract_text_from_pdf,
+    setup_ai, extract_text_from_pdf,
     extract_structured_data, generate_related_work, RateLimitError
 )
 
@@ -265,16 +265,54 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="section-label">⚙ Configuration</div>', unsafe_allow_html=True)
-    api_key_env = os.getenv("GEMINI_API_KEY", "")
-    user_api_key = st.text_input(
-        "Gemini API Key", value=api_key_env, type="password",
-        placeholder="AIzaSy...", help="Get your free key at aistudio.google.com"
+    
+    provider_options = {
+        "Google Gemini": "https://aistudio.google.com/app/apikey",
+        "Groq (Free & Fast)": "https://console.groq.com/keys",
+        "OpenAI (ChatGPT)": "https://platform.openai.com/api-keys",
+        "Anthropic (Claude)": "https://console.anthropic.com/settings/keys"
+    }
+    
+    selected_provider = st.selectbox(
+        "AI Provider",
+        list(provider_options.keys()),
+        index=0,
+        help="Select the AI provider to use. Groq offers a fast, free tier."
     )
-    st.link_button("🔑 Get Gemini API Key", "https://aistudio.google.com/app/apikey", use_container_width=True)
+    
+    # Use different ENV variable based on provider for initial value
+    env_keys = {
+        "Google Gemini": "GEMINI_API_KEY",
+        "Groq (Free & Fast)": "GROQ_API_KEY",
+        "OpenAI (ChatGPT)": "OPENAI_API_KEY",
+        "Anthropic (Claude)": "ANTHROPIC_API_KEY"
+    }
+    api_key_env = os.getenv(env_keys[selected_provider], "")
+
+    user_api_key = st.text_input(
+        f"{selected_provider.split(' ')[0]} API Key", value=api_key_env, type="password",
+        placeholder="sk-..." if "Gemini" not in selected_provider else "AIzaSy...", 
+        help=f"Get your free key at {provider_options[selected_provider]}"
+    )
+    st.link_button(f"🔑 Get {selected_provider.split(' ')[0]} API Key", provider_options[selected_provider], use_container_width=True)
+    
     if user_api_key:
-        st.markdown('<div style="color:#34d399; font-size:0.8rem; font-weight:600; margin-top:-8px;">✓ API Key provided</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:#34d399; font-size:0.8rem; font-weight:600; margin-top:-8px;">✓ API Key provided</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div style="color:#f59e0b; font-size:0.8rem; font-weight:500; margin-top:-8px;">⚠ API Key required</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:#f59e0b; font-size:0.8rem; font-weight:500; margin-top:-8px;">⚠ API Key required</div>', unsafe_allow_html=True)
+
+    # Track changes to provider or API key
+    if "current_provider" not in st.session_state:
+        st.session_state.current_provider = selected_provider
+    if "current_api_key" not in st.session_state:
+        st.session_state.current_api_key = user_api_key
+        
+    if st.session_state.current_provider != selected_provider or st.session_state.current_api_key != user_api_key:
+        st.session_state.current_provider = selected_provider
+        st.session_state.current_api_key = user_api_key
+        st.session_state.extractor_error = None
+        st.session_state.rw_error = None
+        st.session_state.last_filename = None # Force re-extraction with new key
 
     st.markdown('<hr class="fancy-divider" style="margin:1.2rem 0;"/>', unsafe_allow_html=True)
     st.markdown('<div class="section-label">🧭 Navigation</div>', unsafe_allow_html=True)
@@ -288,7 +326,7 @@ with st.sidebar:
         st.session_state.page = "related_work"
 
     st.markdown('<hr class="fancy-divider" style="margin:1.2rem 0;"/>', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:0.72rem; color:#334155; text-align:center;">Powered by Google Gemini AI · PyMuPDF</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="font-size:0.72rem; color:#334155; text-align:center;">Powered by {selected_provider} · PyMuPDF</div>', unsafe_allow_html=True)
 
 # ── API guard ─────────────────────────────────────────────────────────────
 if not user_api_key:
@@ -299,13 +337,13 @@ if not user_api_key:
             <p class="hero-sub">Extract, analyze, and synthesize academic papers with Google Gemini AI.</p>
         </div>
     """, unsafe_allow_html=True)
-    st.info("👈 Please enter your **Gemini API Key** in the sidebar to get started.")
+    st.info(f"👈 Please enter your **{selected_provider.split(' ')[0]} API Key** in the sidebar to get started.")
     st.stop()
 
 try:
-    setup_gemini(user_api_key)
+    setup_ai(selected_provider, user_api_key)
 except Exception as e:
-    st.error(f"⚠️ Failed to initialise Gemini API: {e}")
+    st.error(f"⚠️ Failed to initialise AI: {e}")
     st.stop()
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -316,12 +354,12 @@ if st.session_state.page == "extractor":
         <div class="hero-wrapper fade-in">
             <div class="hero-badge">✦ Step 1 of 2 — Extract Papers</div>
             <h1 class="hero-title">Research Paper<br/><span style="opacity:0.85;">→ Structured JSON</span></h1>
-            <p class="hero-sub">Upload a PDF and Gemini extracts title, abstract, datasets, key findings, and more — ready to use in the Related Work Generator.</p>
+            <p class="hero-sub">Upload a PDF and {selected_provider.split(' ')[0]} extracts title, abstract, datasets, key findings, and more — ready to use in the Related Work Generator.</p>
         </div>
     """, unsafe_allow_html=True)
 
     # Session state
-    for key in ["extracted_data", "last_filename", "file_bytes"]:
+    for key in ["extracted_data", "last_filename", "file_bytes", "extractor_error"]:
         if key not in st.session_state:
             st.session_state[key] = None
 
@@ -335,29 +373,42 @@ if st.session_state.page == "extractor":
 
         if uploaded_file is not None:
             if uploaded_file.name != st.session_state.last_filename:
-                st.session_state.file_bytes = uploaded_file.read()
+                st.session_state.file_bytes = uploaded_file.getvalue()
                 st.session_state.extracted_data = None
                 st.session_state.last_filename = uploaded_file.name
-
-                with st.spinner("🤖 Gemini is reading your paper…"):
+ 
+                with st.spinner(f"🤖 {selected_provider.split(' ')[0]} is reading your paper…"):
                     try:
+                        st.session_state.extractor_error = None
                         pdf_text = extract_text_from_pdf(st.session_state.file_bytes)
                         st.session_state.extracted_data = extract_structured_data(pdf_text)
                     except RateLimitError as rle:
-                        st.markdown(f"""
-                            <div class="rate-limit-card">
-                                <div style="font-size:1rem; font-weight:700; color:#fbbf24;">⚠️ API Quota Exceeded</div>
-                                <div style="font-size:0.88rem; color:#94a3b8; margin:0.5rem 0;">
-                                    Free-tier limit reached. Please wait <strong style="color:#fbbf24;">{rle.retry_after}s</strong> before retrying.
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
+                        st.session_state.extractor_error = f"API Quota Exceeded. Please wait {rle.retry_after}s."
                     except Exception as e:
-                        st.error(f"Extraction Error: {e}")
+                        st.session_state.extractor_error = str(e)
         else:
             st.session_state.extracted_data = None
             st.session_state.last_filename = None
             st.session_state.file_bytes = None
+            st.session_state.extractor_error = None
+
+        # Persistent error display
+        if st.session_state.extractor_error:
+            if "API Quota Exceeded" in st.session_state.extractor_error:
+                 st.markdown(f"""
+                    <div class="rate-limit-card">
+                        <div style="font-size:1rem; font-weight:700; color:#fbbf24;">⚠️ API Quota Exceeded</div>
+                        <div style="font-size:0.88rem; color:#94a3b8; margin:0.5rem 0;">
+                            {st.session_state.extractor_error}
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.error(f"Extraction Error: {st.session_state.extractor_error}")
+            
+            if st.button("🔄 Retry Extraction"):
+                st.session_state.last_filename = None # Force re-extraction
+                st.rerun()
 
         ed = st.session_state.extracted_data
         if ed:
@@ -469,12 +520,12 @@ elif st.session_state.page == "related_work":
         <div class="hero-wrapper fade-in">
             <div class="hero-badge">✦ Step 2 of 2 — Write Related Work</div>
             <h1 class="hero-title">Related Work<br/><span style="opacity:0.85;">Generator</span></h1>
-            <p class="hero-sub">Upload up to <strong style="color:#818cf8;">30 JSON files</strong> exported from the Paper Extractor. Gemini will analyze all papers and write a full, thematic Related Work section ready for your paper.</p>
+            <p class="hero-sub">Upload up to <strong style="color:#818cf8;">30 JSON files</strong> exported from the Paper Extractor. {selected_provider.split(' ')[0]} will analyze all papers and write a full, thematic Related Work section ready for your paper.</p>
         </div>
     """, unsafe_allow_html=True)
 
     # Session state for this page
-    for key in ["rw_result", "rw_papers_loaded"]:
+    for key in ["rw_result", "rw_error"]:
         if key not in st.session_state:
             st.session_state[key] = None
 
@@ -498,7 +549,7 @@ elif st.session_state.page == "related_work":
             placeholder="e.g., Deep learning for medical image segmentation using transformers...",
             height=120,
             label_visibility="collapsed",
-            help="Describing your topic helps Gemini make the Related Work more relevant."
+            help=f"Describing your topic helps {selected_provider.split(' ')[0]} make the Related Work more relevant."
         )
 
     # Validate and load JSON files
@@ -563,21 +614,29 @@ elif st.session_state.page == "related_work":
 
         if generate_btn:
             st.session_state.rw_result = None
-            with st.spinner("✍️ Gemini is reading all papers and crafting your Related Work section… (this may take 20-60 seconds)"):
+            st.session_state.rw_error = None
+            with st.spinner(f"✍️ {selected_provider.split(' ')[0]} is reading all papers and crafting your Related Work section… (this may take 20-60 seconds)"):
                 try:
                     result = generate_related_work(papers, user_topic=user_topic)
                     st.session_state.rw_result = result
                 except RateLimitError as rle:
-                    st.markdown(f"""
-                        <div class="rate-limit-card">
-                            <div style="font-size:1rem;font-weight:700;color:#fbbf24;">⚠️ API Quota Exceeded</div>
-                            <div style="font-size:0.88rem;color:#94a3b8;margin:0.5rem 0;">
-                                Please wait <strong style="color:#fbbf24;">{rle.retry_after} seconds</strong> and try again.
-                            </div>
-                        </div>
-                    """, unsafe_allow_html=True)
+                    st.session_state.rw_error = f"API Quota Exceeded. Please wait {rle.retry_after} seconds."
                 except Exception as e:
-                    st.error(f"Generation Error: {e}")
+                    st.session_state.rw_error = str(e)
+
+        # Persistent error display for Related Work
+        if st.session_state.rw_error:
+            if "API Quota Exceeded" in st.session_state.rw_error:
+                st.markdown(f"""
+                    <div class="rate-limit-card">
+                        <div style="font-size:1rem;font-weight:700;color:#fbbf24;">⚠️ API Quota Exceeded</div>
+                        <div style="font-size:0.88rem;color:#94a3b8;margin:0.5rem 0;">
+                            {st.session_state.rw_error}
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.error(f"Generation Error: {st.session_state.rw_error}")
 
     elif json_files is not None and len(json_files) == 0:
         st.markdown("""

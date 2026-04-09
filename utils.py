@@ -5,6 +5,27 @@ import re
 import os
 from typing import Dict, Any, Optional
 
+try:
+    from groq import Groq
+except ImportError:
+    pass
+
+try:
+    from openai import OpenAI
+except ImportError:
+    pass
+
+try:
+    from anthropic import Anthropic
+except ImportError:
+    pass
+
+# Global configuration state
+global_ai_config = {
+    "provider": "Google Gemini",
+    "api_key": ""
+}
+
 
 class RateLimitError(Exception):
     """Raised when the Gemini API returns a 429 quota-exceeded response."""
@@ -12,9 +33,14 @@ class RateLimitError(Exception):
         super().__init__(message)
         self.retry_after = retry_after  # seconds to wait before retrying
 
-def setup_gemini(api_key: str):
-    """Configures the Gemini API."""
-    genai.configure(api_key=api_key)
+def setup_ai(provider: str, api_key: str):
+    """Configures the selected AI API."""
+    global global_ai_config
+    global_ai_config["provider"] = provider
+    global_ai_config["api_key"] = api_key
+    
+    if provider == "Google Gemini":
+        genai.configure(api_key=api_key)
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     """
@@ -54,25 +80,67 @@ def _get_model():
             break
     return genai.GenerativeModel(chosen.replace('models/', ''))
 
+def _clean_json_text(text: str) -> str:
+    """Extracts JSON content from text that might contain markdown backticks or preamble."""
+    text = text.strip()
+    # Find the first occurrences of { or [ and the last } or ]
+    start_idx = text.find('{')
+    start_arr = text.find('[')
+    
+    if start_idx == -1 and start_arr == -1:
+        return text # Hope for the best
+        
+    start = start_idx if (start_idx != -1 and (start_arr == -1 or start_idx < start_arr)) else start_arr
+    
+    end_idx = text.rfind('}')
+    end_arr = text.rfind(']')
+    end = end_idx if (end_idx != -1 and (end_arr == -1 or end_idx > end_arr)) else end_arr
+    
+    if start != -1 and end != -1 and end > start:
+        return text[start:end+1]
+    
+    # Fallback to backtick removal if logic above fails
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
 def _handle_api_error(api_err):
     """Raises RateLimitError or re-raises other errors."""
     err_str = str(api_err)
-    if "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower():
+    
+    if "credit balance is too low" in err_str.lower() or "insufficient_quota" in err_str.lower():
+        raise RateLimitError(
+            "API balance is empty or too low. Please add credits to your provider account or switch to a free provider like Groq.",
+            retry_after=0
+        )
+        
+    if "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower() or "too_many_requests" in err_str.lower():
         retry_seconds = 60
         match = re.search(r'retry_delay\s*\{\s*seconds:\s*(\d+)', err_str)
         if match:
             retry_seconds = int(match.group(1))
         raise RateLimitError(
-            "Gemini API free-tier quota exceeded. Please wait and try again.",
+            "API free-tier quota exceeded. Please wait and try again.",
             retry_after=retry_seconds
         )
     raise api_err
 
 def extract_structured_data(pdf_text: str) -> Dict[str, Any]:
     """
-    Sends the PDF text to Gemini to extract structured JSON data.
+    Sends the PDF text to the selected AI to extract structured JSON data.
     """
-    model = _get_model()
+    provider = global_ai_config["provider"]
+    api_key = global_ai_config["api_key"]
+
+    # Prevent instant token limit errors by truncating long papers
+    # ~40,000 chars is roughly 10,000 tokens, which avoids blowing up free limits.
+    max_chars = 40000
+    if len(pdf_text) > max_chars:
+        pdf_text = pdf_text[:max_chars] + "\n\n...[REMAINDER TRUNCATED TO FIT FREE API LIMITS]"
 
     prompt = f"""
     You are an expert academic research assistant. Your task is to analyze the following research paper text 
@@ -115,23 +183,45 @@ def extract_structured_data(pdf_text: str) -> Dict[str, Any]:
     """
 
     try:
-        response = model.generate_content(prompt)
+        response_text = ""
+        if provider == "Google Gemini":
+            model = _get_model()
+            response = model.generate_content(prompt)
+            response_text = response.text
+        elif provider == "Groq (Free & Fast)":
+            client = Groq(api_key=api_key)
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+            response_text = response.choices[0].message.content
+        elif provider == "OpenAI (ChatGPT)":
+            client = OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+            response_text = response.choices[0].message.content
+        elif provider == "Anthropic (Claude)":
+            client = Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+            response_text = response.content[0].text
     except Exception as api_err:
         _handle_api_error(api_err)
 
     try:
-        response_text = response.text.strip()
-        if response_text.startswith("```json"):
-            response_text = response_text[7:]
-        if response_text.startswith("```"):
-            response_text = response_text[3:]
-        if response_text.endswith("```"):
-            response_text = response_text[:-3]
-        response_text = response_text.strip()
-        parsed_data = json.loads(response_text)
+        response_text_clean = _clean_json_text(response_text)
+        parsed_data = json.loads(response_text_clean)
         return parsed_data
     except Exception as e:
-        raise Exception(f"Failed to parse Gemini's response into JSON. Raw response: {response.text}\nError: {e}")
+        raise Exception(f"Failed to parse {provider}'s response into JSON. Raw response partially: {str(response_text)[:200]}...\nError: {e}")
 
 
 def generate_related_work(papers: list, user_topic: str = "") -> dict:
@@ -140,19 +230,9 @@ def generate_related_work(papers: list, user_topic: str = "") -> dict:
     Related Work section suitable for an academic paper.
     Returns a dict with 'related_work_text', 'themes', and 'citation_map'.
     """
-    # Use pro model for better writing quality if available
-    available_models = []
-    for m in genai.list_models():
-        if 'generateContent' in m.supported_generation_methods:
-            available_models.append(m.name)
-    if not available_models:
-        raise Exception("No text generation models available.")
-    chosen = available_models[0]
-    for pref in ['models/gemini-1.5-pro', 'models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-1.0-pro']:
-        if pref in available_models:
-            chosen = pref
-            break
-    model = genai.GenerativeModel(chosen.replace('models/', ''))
+    provider = global_ai_config["provider"]
+    api_key = global_ai_config["api_key"]
+
 
     # Build compact summaries for each paper
     papers_summary = ""
@@ -208,23 +288,58 @@ PAPERS:
 """
 
     try:
-        response = model.generate_content(prompt)
+        response_text = ""
+        if provider == "Google Gemini":
+            # Use pro model for better writing quality if available
+            available_models = []
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods:
+                    available_models.append(m.name)
+            if not available_models:
+                raise Exception("No text generation models available.")
+            chosen = available_models[0]
+            for pref in ['models/gemini-1.5-pro', 'models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-1.0-pro']:
+                if pref in available_models:
+                    chosen = pref
+                    break
+            model = genai.GenerativeModel(chosen.replace('models/', ''))
+            response = model.generate_content(prompt)
+            response_text = response.text
+        elif provider == "Groq (Free & Fast)":
+            client = Groq(api_key=api_key)
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3
+            )
+            response_text = response.choices[0].message.content
+        elif provider == "OpenAI (ChatGPT)":
+            client = OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3
+            )
+            response_text = response.choices[0].message.content
+        elif provider == "Anthropic (Claude)":
+            client = Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3
+            )
+            response_text = response.content[0].text
     except Exception as api_err:
         _handle_api_error(api_err)
 
     try:
-        resp_text = response.text.strip()
-        if resp_text.startswith("```json"):
-            resp_text = resp_text[7:]
-        if resp_text.startswith("```"):
-            resp_text = resp_text[3:]
-        if resp_text.endswith("```"):
-            resp_text = resp_text[:-3]
-        resp_text = resp_text.strip()
-        return json.loads(resp_text)
+        resp_text_clean = _clean_json_text(response_text)
+        return json.loads(resp_text_clean)
     except Exception:
+        # If it completely fails to be JSON, return the raw text as a fallback
         return {
-            "related_work_text": response.text,
+            "related_work_text": str(response_text) if response_text else "Error: Could not retrieve text from response.",
             "themes": [],
             "citation_map": []
         }
