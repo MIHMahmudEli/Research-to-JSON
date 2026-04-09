@@ -386,7 +386,7 @@ if st.session_state.page == "extractor":
                         pdf_text = extract_text_from_pdf(st.session_state.file_bytes)
                         st.session_state.extracted_data = extract_structured_data(pdf_text)
                     except RateLimitError as rle:
-                        st.session_state.extractor_error = f"API Quota Exceeded. Please wait {rle.retry_after}s."
+                        st.session_state.extractor_error = f"RATE_LIMIT:{rle.retry_after}:{str(rle)}"
                     except Exception as e:
                         st.session_state.extractor_error = str(e)
         else:
@@ -397,15 +397,14 @@ if st.session_state.page == "extractor":
 
         # Persistent error display
         if st.session_state.extractor_error:
-            if "API Quota Exceeded" in st.session_state.extractor_error:
-                 st.markdown(f"""
-                    <div class="rate-limit-card">
-                        <div style="font-size:1rem; font-weight:700; color:#fbbf24;">⚠️ API Quota Exceeded</div>
-                        <div style="font-size:0.88rem; color:#94a3b8; margin:0.5rem 0;">
-                            {st.session_state.extractor_error}
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
+            if str(st.session_state.extractor_error).startswith("RATE_LIMIT:"):
+                # Parse out retry time and message
+                parts = st.session_state.extractor_error.split(":", 2)
+                retry_time = parts[1]
+                msg = parts[2]
+                st.warning(f"⚠️ **API Quota / Balance Error**\n\n{msg}")
+                if retry_time and retry_time != '0':
+                    st.info(f"⏳ Please wait **{retry_time} seconds** before retrying.")
             else:
                 st.error(f"Extraction Error: {st.session_state.extractor_error}")
             
@@ -425,34 +424,57 @@ if st.session_state.page == "extractor":
             )
             st.markdown(f'<div style="margin-bottom:1.5rem;">{stats_html}</div>', unsafe_allow_html=True)
 
-            t_summary, t_insights, t_datasets, t_raw = st.tabs([
-                "📝 Summary", "💡 Insights", "📦 Datasets", "🔍 Raw JSON"
+            t_summary, t_methods, t_results, t_insights, t_datasets, t_raw = st.tabs([
+                "📝 Summary", "⚙️ Methods", "📊 Results", "💡 Insights", "📦 Datasets", "🔍 Raw JSON"
             ])
 
             with t_summary:
                 st.markdown('<div style="margin-top:1rem;"></div>', unsafe_allow_html=True)
+                if ed.get("research_objective"):
+                    st.markdown('<div class="section-label">🎯 Research Objective</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="premium-card insight-text">{ed["research_objective"]}</div>', unsafe_allow_html=True)
                 if ed.get("summary"):
+                    st.markdown('<div class="section-label">📝 Abstract Summary</div>', unsafe_allow_html=True)
                     st.markdown(f'<div class="premium-card insight-text">{ed["summary"]}</div>', unsafe_allow_html=True)
-                else:
+                elif not ed.get("summary") and not ed.get("research_objective"):
                     st.info("No summary extracted.")
+
+            with t_methods:
+                st.markdown('<div style="margin-top:1rem;"></div>', unsafe_allow_html=True)
+                if ed.get("detailed_methodology"):
+                    st.markdown('<div class="section-label">⚙️ Detailed Methodology</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="premium-card insight-text" style="white-space: pre-wrap;">{ed["detailed_methodology"]}</div>', unsafe_allow_html=True)
+                if ed.get("experimental_setup"):
+                    st.markdown('<div class="section-label">🧪 Experimental Setup</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="premium-card insight-text" style="white-space: pre-wrap;">{ed["experimental_setup"]}</div>', unsafe_allow_html=True)
+
+            with t_results:
+                st.markdown('<div style="margin-top:1rem;"></div>', unsafe_allow_html=True)
+                if ed.get("quantitative_results"):
+                    st.markdown('<div class="section-label">📈 Quantitative Results</div>', unsafe_allow_html=True)
+                    for r in ed["quantitative_results"]:
+                        st.markdown(f'<div class="list-item">{r}</div>', unsafe_allow_html=True)
+                else:
+                    st.info("No quantitative results extracted.")
 
             with t_insights:
                 st.markdown('<div style="margin-top:1rem;"></div>', unsafe_allow_html=True)
+                if ed.get("key_findings"):
+                    st.markdown('<div class="section-label">💡 Key Findings</div>', unsafe_allow_html=True)
+                    for f in ed["key_findings"]:
+                        st.markdown(f'<div class="list-item">{f}</div>', unsafe_allow_html=True)
+                
                 c1, c2 = st.columns(2)
                 with c1:
-                    if ed.get("key_findings"):
-                        st.markdown('<div class="section-label">💡 Key Findings</div>', unsafe_allow_html=True)
-                        for f in ed["key_findings"]:
-                            st.markdown(f'<div class="list-item">{f}</div>', unsafe_allow_html=True)
-                with c2:
                     if ed.get("limitations"):
                         st.markdown('<div class="section-label">⚠️ Limitations</div>', unsafe_allow_html=True)
                         for l in ed["limitations"]:
                             st.markdown(f'<div class="list-item">{l}</div>', unsafe_allow_html=True)
-                if ed.get("future_work"):
-                    st.markdown('<div class="section-label">🚀 Future Work</div>', unsafe_allow_html=True)
-                    for fw in ed["future_work"]:
-                        st.markdown(f'<div class="list-item">{fw}</div>', unsafe_allow_html=True)
+                with c2:
+                    if ed.get("future_work"):
+                        st.markdown('<div class="section-label">🚀 Future Work</div>', unsafe_allow_html=True)
+                        for fw in ed["future_work"]:
+                            st.markdown(f'<div class="list-item">{fw}</div>', unsafe_allow_html=True)
 
             with t_datasets:
                 st.markdown('<div style="margin-top:1rem;"></div>', unsafe_allow_html=True)
@@ -623,21 +645,19 @@ elif st.session_state.page == "related_work":
                     result = generate_related_work(papers, user_topic=user_topic)
                     st.session_state.rw_result = result
                 except RateLimitError as rle:
-                    st.session_state.rw_error = f"API Quota Exceeded. Please wait {rle.retry_after} seconds."
+                    st.session_state.rw_error = f"RATE_LIMIT:{rle.retry_after}:{str(rle)}"
                 except Exception as e:
                     st.session_state.rw_error = str(e)
 
         # Persistent error display for Related Work
         if st.session_state.rw_error:
-            if "API Quota Exceeded" in st.session_state.rw_error:
-                st.markdown(f"""
-                    <div class="rate-limit-card">
-                        <div style="font-size:1rem;font-weight:700;color:#fbbf24;">⚠️ API Quota Exceeded</div>
-                        <div style="font-size:0.88rem;color:#94a3b8;margin:0.5rem 0;">
-                            {st.session_state.rw_error}
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
+            if str(st.session_state.rw_error).startswith("RATE_LIMIT:"):
+                parts = st.session_state.rw_error.split(":", 2)
+                retry_time = parts[1]
+                msg = parts[2]
+                st.warning(f"⚠️ **API Quota / Balance Error**\n\n{msg}")
+                if retry_time and retry_time != '0':
+                    st.info(f"⏳ Please wait **{retry_time} seconds** before retrying.")
             else:
                 st.error(f"Generation Error: {st.session_state.rw_error}")
 

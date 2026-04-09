@@ -156,8 +156,12 @@ def extract_structured_data(pdf_text: str) -> Dict[str, Any]:
         "title": "(String) The title of the paper",
         "authors": ["(String)", "(String) list of authors"],
         "abstract": "(String) The abstract of the paper",
-        "summary": "(String) A concise 2-3 paragraph summary of the entire paper for a researcher",
-        "key_findings": ["(String) key result 1", "(String) key result 2"],
+        "summary": "(String) A concise 2-3 paragraph summary of the entire paper",
+        "research_objective": "(String) The main goal or problem being solved",
+        "detailed_methodology": "(String) Deep technical breakdown of algorithms, architecture, or strategies used",
+        "experimental_setup": "(String) Hardware, software, hyperparameters, and environment details",
+        "quantitative_results": ["(String) Exact numerical results, comparisons, metrics, and percentages 1", "(String) result 2"],
+        "key_findings": ["(String) high-level key observation 1", "(String) high-level key observation 2"],
         "datasets": [
            {{
              "name": "(String) Name of the dataset used",
